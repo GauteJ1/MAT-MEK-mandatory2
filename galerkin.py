@@ -231,18 +231,22 @@ class Cosines(Trigonometric):
 
     def __init__(self, N, domain=(0, 1), bc=(0, 0)):
         Trigonometric.__init__(self, N, domain=domain)
-        self.B = Dirichlet(bc, domain, self.reference_domain)
+        self.B = Neumann(bc, domain, self.reference_domain)
 
     def basis_function(self, j, sympy=False):
         if sympy:
-            return sp.cos((j + 1) * sp.pi * x)
-        return lambda Xj: np.cos((j + 1) * np.pi * Xj)
+            return sp.cos(j * sp.pi * x)
+        return lambda Xj: np.cos(j * np.pi * Xj)
 
     def derivative_basis_function(self, j, k=1):
-        raise NotImplementedError
+        scale = (j * np.pi) ** k * {0: 1, 1: -1}[((k + 1) // 2) % 2]
+        if k % 2 == 0:
+            return lambda Xj: scale * np.cos(j * np.pi * Xj)
+        else:
+            return lambda Xj: scale * np.sin(j * np.pi * Xj)
 
     def L2_norm_sq(self, N):
-        raise NotImplementedError
+        return np.array([1.] + [0.5] * (N - 1))
 
 
 # Create classes to hold the boundary function
@@ -343,7 +347,10 @@ class NeumannLegendre(Composite, Legendre):
     def __init__(self, N, domain=(-1, 1), bc=(0, 0), constraint=0):
         Legendre.__init__(self, N, domain=domain)
         self.B = Neumann(bc, domain, self.reference_domain)
-        self.S = sparse.diags((1, -1), (0, 2), shape=(N + 1, N + 3), format="csr")
+        diag2 = np.array(
+            [-(j * (j + 1)) / ((j + 2) * (j + 3)) for j in range(0, N + 1)]
+        )
+        self.S = sparse.diags((1, diag2), (0, 2), shape=(N + 1, N + 3), format="csr")
 
     def basis_function(self, j, sympy=False):
         if sympy:
@@ -370,12 +377,18 @@ class NeumannChebyshev(Composite, Chebyshev):
     def __init__(self, N, domain=(-1, 1), bc=(0, 0), constraint=0):
         Chebyshev.__init__(self, N, domain=domain)
         self.B = Neumann(bc, domain, self.reference_domain)
-        self.S = sparse.diags((1, -1), (0, 2), shape=(N + 1, N + 3), format="csr")
+        diag0 = np.array([(j + 2) ** 2 for j in range(0, N + 1)])
+        diag2 = np.array([-(j**2) for j in range(0, N + 1)])
+        self.S = sparse.diags(
+            (diag0, diag2), (0, 2), shape=(N + 1, N + 3), format="csr"
+        )
 
     def basis_function(self, j, sympy=False):
         if sympy:
-            return sp.cos(j * sp.acos(x)) - sp.cos((j + 2) * sp.acos(x))
-        return Cheb.basis(j) - Cheb.basis(j + 2)
+            return (j + 2) ** 2 * sp.cos(j * sp.acos(x)) - j**2 * sp.cos(
+                (j + 2) * sp.acos(x)
+            )
+        return (j + 2) ** 2 * Cheb.basis(j) - j**2 * Cheb.basis(j + 2)
 
 
 class BasisFunction:
@@ -484,12 +497,12 @@ def test_helmholtz():
     f = ue.diff(x, 2) + ue
     domain = (0, 10)
     for space in (
-        # NeumannChebyshev,
+        NeumannChebyshev,
         NeumannLegendre,
         DirichletChebyshev,
         DirichletLegendre,
-        # Sines,
-        # Cosines,
+        Sines,
+        Cosines,
     ):
         if space in (NeumannChebyshev, NeumannLegendre, Cosines):
             bc = ue.diff(x, 1).subs(x, domain[0]), ue.diff(x, 1).subs(x, domain[1])
@@ -528,6 +541,6 @@ def test_convection_diffusion():
 
 
 if __name__ == "__main__":
-    # test_project()
-    # test_convection_diffusion()
+    test_project()
+    test_convection_diffusion()
     test_helmholtz()
